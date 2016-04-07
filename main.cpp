@@ -198,7 +198,7 @@ class MotionSynthesizer {
         }
         /// Might need to be advanced several times...
         while (trackerDataNeedsAdvancing(tv)) {
-            std::cerr << "Advanced the tracker data!" << std::endl;
+            //std::cerr << "Advanced the tracker data!" << std::endl;
             if (!advanceTrackerData()) {
                 return Status::OutOfData;
             }
@@ -392,9 +392,9 @@ int main(int argc, char *argv[]) {
     }
     // Verify the first line of the other file to look for at least sec,usec
     // headers.
+    static const auto dataHeaderLine = getCleanLine(timeRefData);
     {
-        auto timestampHeaders =
-            getFields(getCleanLine(timeRefData), NUM_TIMESTAMP_FIELDS);
+        auto timestampHeaders = getFields(dataHeaderLine, NUM_TIMESTAMP_FIELDS);
         if (timestampHeaders.size() != NUM_TIMESTAMP_FIELDS) {
             std::cerr << "Couldn't get " << NUM_TIMESTAMP_FIELDS
                       << " headings from the first line of the time reference "
@@ -426,6 +426,21 @@ int main(int argc, char *argv[]) {
         Eigen::Quaterniond rot;
         bool done = false;
         std::uint64_t rows = 0;
+        std::ofstream output("outData.csv");
+        if (!output) {
+            std::cerr << "Couldn't open the output data file." << std::endl;
+        }
+
+        /// Write a header line with our extra fields at the beginning.
+        for (auto &field :
+             {"refx", "refy", "refz", "refqw", "refqx", "refqy", "refqz"}) {
+            output << DOUBLEQUOTE_CHAR << field << DOUBLEQUOTE_CHAR
+                   << COMMA_CHAR;
+        }
+        output << dataHeaderLine << COMMA_CHAR;
+        output << std::endl;
+
+        bool startedWriting = false;
         do {
             auto data = getCleanLine(timeRefData);
             if (!timeRefData) {
@@ -458,7 +473,15 @@ int main(int argc, char *argv[]) {
                 // std::cout << "Skip!" << std::endl;
                 break;
             case Status::Successful:
-                std::cout << xlate.transpose() << std::endl;
+                if (!startedWriting) {
+                    std::cout << "Starting to write data rows!" << std::endl;
+                    startedWriting = true;
+                }
+                output << xlate.x() << COMMA_CHAR << xlate.y() << COMMA_CHAR
+                       << xlate.z() << COMMA_CHAR << rot.w() << COMMA_CHAR
+                       << rot.x() << COMMA_CHAR << rot.y() << COMMA_CHAR
+                       << rot.z() << COMMA_CHAR << data << std::endl;
+                // std::cout << xlate.transpose() << std::endl;
                 break;
             case Status::OutOfData:
                 std::cout << "Out of data from the tracker." << std::endl;
