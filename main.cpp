@@ -23,7 +23,7 @@
 // limitations under the License.
 
 // Internal Includes
-// - none
+#include "CSVTools.h"
 
 // Library/third-party includes
 #include <Eigen/Core>
@@ -41,45 +41,10 @@
 #include <string>
 #include <vector>
 
-static const char COMMA_CHAR = ',';
-
-static const char DOUBLEQUOTE_CHAR = '"';
-
 using osvr::util::time::TimeValue;
+using csvtools::COMMA_CHAR;
+using csvtools::DOUBLEQUOTE_CHAR;
 
-inline std::string getCleanLine(std::istream &is) {
-    std::string ret;
-    std::getline(is, ret);
-    while (!ret.empty() && (ret.back() == '\n' || ret.back() == '\r')) {
-        ret.pop_back();
-    }
-    return ret;
-}
-
-namespace string_fields {
-
-inline std::size_t getBeginningOfField(std::string const &line,
-                                       std::size_t field) {
-    if (0 == field) {
-        return 0;
-    }
-    std::size_t pos = 0;
-    for (std::size_t i = 0; i < field && pos != std::string::npos; ++i) {
-        pos = line.find(COMMA_CHAR, pos + 1);
-    }
-    if (pos != std::string::npos) {
-        if (pos + 1 < line.size()) {
-            // must advance past the comma.
-            pos++;
-        } else {
-            // if we can't advance past the comma, it's as though we couldn't
-            // find the field.
-            pos = std::string::npos;
-        }
-    }
-    return pos;
-}
-}
 void usage() {
     std::cerr << "Must pass the CSV file containing the tracker reports, then "
                  "the CSV file containing other data that you'd like to "
@@ -92,53 +57,6 @@ int errorExitAfterUsagePrint() {
     std::cerr << "\n";
     usage();
     return -1;
-}
-std::vector<std::string> getFields(std::string const &line,
-                                   std::size_t numFields,
-                                   std::size_t first = 0) {
-    std::vector<std::string> ret;
-    /// "begin" iterator/position
-    std::size_t b = string_fields::getBeginningOfField(line, first);
-    /// initial "one past the end" iterator/position
-    auto e = b;
-    std::size_t len = 0;
-    bool done = false;
-    const auto n = line.size();
-    /// the condition on b < n is because we update b = e + 1, and e might be
-    /// the last character in the string.
-    for (std::size_t i = 0; i < numFields && !done && b < n; ++i) {
-        e = line.find(COMMA_CHAR, b);
-        if (e == std::string::npos) {
-            // indicate to substring we want the rest of the line.
-            len = std::string::npos;
-            // quit after this field
-            done = true;
-        } else {
-            len = e - b;
-        }
-
-        ret.emplace_back(line.substr(b, len));
-        if (!done) {
-            b = e + 1;
-        }
-    }
-    return ret;
-}
-
-inline void stripQuotes(std::string &field) {
-    if (field.size() > 1 && field.front() == DOUBLEQUOTE_CHAR &&
-        field.back() == DOUBLEQUOTE_CHAR) {
-        /// pop back first, so we have less to "slide up"
-        field.pop_back();
-        /// then remove the first character
-        field.erase(0, 1);
-    }
-}
-
-inline void stripQuotes(std::vector<std::string> &fields) {
-    for (auto &field : fields) {
-        stripQuotes(field);
-    }
 }
 
 static const auto NUM_TIMESTAMP_FIELDS = 2;
@@ -198,7 +116,7 @@ class MotionSynthesizer {
         }
         /// Might need to be advanced several times...
         while (trackerDataNeedsAdvancing(tv)) {
-            //std::cerr << "Advanced the tracker data!" << std::endl;
+            // std::cerr << "Advanced the tracker data!" << std::endl;
             if (!advanceTrackerData()) {
                 return Status::OutOfData;
             }
@@ -273,12 +191,12 @@ class MotionSynthesizer {
         if (!trackerData_) {
             return false;
         }
-        auto line = getCleanLine(trackerData_);
+        auto line = csvtools::getCleanLine(trackerData_);
         if (!trackerData_) {
             return false;
         }
 
-        fieldsTemp_ = getFields(line, FIELDS_IN_TRACKER_DATA);
+        fieldsTemp_ = csvtools::getFields(line, FIELDS_IN_TRACKER_DATA);
         enum {
             Sec = 0,
             Usec = 1,
@@ -358,8 +276,8 @@ int main(int argc, char *argv[]) {
     // Verify at least the first line of the tracker file to make sure it's what
     // we expect.
     {
-        auto trackerHeaders =
-            getFields(getCleanLine(trackerData), FIELDS_IN_TRACKER_DATA);
+        auto trackerHeaders = csvtools::getFields(
+            csvtools::getCleanLine(trackerData), FIELDS_IN_TRACKER_DATA);
         if (trackerHeaders.size() != FIELDS_IN_TRACKER_DATA) {
             std::cerr
                 << "Couldn't get " << FIELDS_IN_TRACKER_DATA
@@ -368,7 +286,7 @@ int main(int argc, char *argv[]) {
             return errorExitAfterUsagePrint();
         }
 
-        stripQuotes(trackerHeaders);
+        csvtools::stripQuotes(trackerHeaders);
 #if 0
         for (auto &header : trackerHeaders) {
             std::cout << "Header: " << header << std::endl;
@@ -392,9 +310,10 @@ int main(int argc, char *argv[]) {
     }
     // Verify the first line of the other file to look for at least sec,usec
     // headers.
-    static const auto dataHeaderLine = getCleanLine(timeRefData);
+    static const auto dataHeaderLine = csvtools::getCleanLine(timeRefData);
     {
-        auto timestampHeaders = getFields(dataHeaderLine, NUM_TIMESTAMP_FIELDS);
+        auto timestampHeaders =
+            csvtools::getFields(dataHeaderLine, NUM_TIMESTAMP_FIELDS);
         if (timestampHeaders.size() != NUM_TIMESTAMP_FIELDS) {
             std::cerr << "Couldn't get " << NUM_TIMESTAMP_FIELDS
                       << " headings from the first line of the time reference "
@@ -403,7 +322,7 @@ int main(int argc, char *argv[]) {
             return errorExitAfterUsagePrint();
         }
 
-        stripQuotes(timestampHeaders);
+        csvtools::stripQuotes(timestampHeaders);
 
         for (auto &header : timestampHeaders) {
             std::cout << "Header: " << header << std::endl;
@@ -442,14 +361,15 @@ int main(int argc, char *argv[]) {
 
         bool startedWriting = false;
         do {
-            auto data = getCleanLine(timeRefData);
+            auto data = csvtools::getCleanLine(timeRefData);
             if (!timeRefData) {
                 std::cerr << "Out of time ref data, all done." << std::endl;
                 std::cerr << "Rows: " << rows << std::endl;
                 break;
             }
 
-            auto timestampFields = getFields(data, NUM_TIMESTAMP_FIELDS);
+            auto timestampFields =
+                csvtools::getFields(data, NUM_TIMESTAMP_FIELDS);
             if (timestampFields.size() != NUM_TIMESTAMP_FIELDS) {
                 std::cerr << "Got only " << timestampFields.size()
                           << " fields, wanted " << NUM_TIMESTAMP_FIELDS
