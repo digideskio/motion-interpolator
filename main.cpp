@@ -162,6 +162,11 @@ inline MicrosecIntType microsecondsDifference(TimeValue const &a,
            (a.microseconds - b.microseconds);
 }
 
+inline std::ostream &operator<<(std::ostream &os, TimeValue const &tv) {
+    os << tv.seconds << ":" << tv.microseconds;
+    return os;
+}
+
 enum class Status {
     BeforeRecordedTrackerData,
     Successful,
@@ -191,7 +196,9 @@ class MotionSynthesizer {
         if (isBeforeTrackerData(tv)) {
             return Status::BeforeRecordedTrackerData;
         }
-        if (trackerDataNeedsAdvancing(tv)) {
+        /// Might need to be advanced several times...
+        while (trackerDataNeedsAdvancing(tv)) {
+            std::cerr << "Advanced the tracker data!" << std::endl;
             if (!advanceTrackerData()) {
                 return Status::OutOfData;
             }
@@ -205,6 +212,9 @@ class MotionSynthesizer {
         }
         return Status::Successful;
     }
+
+    TimeValue const &getStartTime() const { return start_; };
+    TimeValue const &getEndTime() const { return end_; };
 
   private:
     bool isBeforeTrackerData(TimeValue const &tv) const { return tv < start_; }
@@ -294,12 +304,14 @@ class MotionSynthesizer {
     }
 
     template <typename T> inline bool getField(std::size_t field, T &output) {
+        iss_.clear();
         iss_.str(fieldsTemp_[field]);
         return static_cast<bool>(iss_ >> output);
     }
 
     template <typename T> inline T getFieldAs(std::size_t field) {
         T ret = 0;
+        iss_.clear();
         iss_.str(fieldsTemp_[field]);
         iss_ >> ret;
         return ret;
@@ -413,23 +425,36 @@ int main(int argc, char *argv[]) {
         Eigen::Vector3d xlate;
         Eigen::Quaterniond rot;
         bool done = false;
+        std::uint64_t rows = 0;
         do {
             auto data = getCleanLine(timeRefData);
-            auto timestampFields =
-                getFields(getCleanLine(timeRefData), NUM_TIMESTAMP_FIELDS);
+            if (!timeRefData) {
+                std::cerr << "Out of time ref data, all done." << std::endl;
+                std::cerr << "Rows: " << rows << std::endl;
+                break;
+            }
+
+            auto timestampFields = getFields(data, NUM_TIMESTAMP_FIELDS);
             if (timestampFields.size() != NUM_TIMESTAMP_FIELDS) {
                 std::cerr << "Got only " << timestampFields.size()
                           << " fields, wanted " << NUM_TIMESTAMP_FIELDS
                           << std::endl;
+                std::cerr << "Line was '" << data << "'" << std::endl;
+                std::cerr << "Rows: " << rows << std::endl;
                 break;
             }
+            rows++;
             TimeValue tv;
+            iss.clear();
             iss.str(timestampFields[0]);
             iss >> tv.seconds;
+            iss.clear();
             iss.str(timestampFields[1]);
             iss >> tv.microseconds;
             switch (app(tv, xlate, rot)) {
             case Status::BeforeRecordedTrackerData:
+                std::cout << tv << " not in [ " << app.getStartTime() << " , "
+                          << app.getEndTime() << " ]" << std::endl;
                 // std::cout << "Skip!" << std::endl;
                 break;
             case Status::Successful:
@@ -440,6 +465,7 @@ int main(int argc, char *argv[]) {
                 done = true;
                 break;
             default:
+                std::cerr << "Bad things happened!" << std::endl;
                 break;
             }
         } while (!done);
